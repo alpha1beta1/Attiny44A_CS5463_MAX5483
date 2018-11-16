@@ -22,7 +22,7 @@
 //CS5460 Data Out (DO)
 #define do_cs5460		PORTA6
 //CS5460 Data In (DI)
-#define di_cs5460		PINA5
+#define di_cs5460		PORTA5
 //CS5460 Reset
 #define rst_cs5460		PORTA1
 //Clock Delay for CS5463
@@ -42,8 +42,15 @@
 //MAX5483 Data Out (DO)
 #define do_max5483		PORTB0
 //Clock Delay for MAX5483
-#define clk_delay_max5483		_delay_us(0.1)
+#define clk_delay_max5483		_delay_us(0.2)
 
+
+/************************************************************************/
+/*		MICEN Ports                                                     */
+/************************************************************************/
+
+#define micEn	PORTA3
+#define pgood	PINA7
 
 
 
@@ -78,9 +85,14 @@ void Disable_MAX5483_SS();
 void SPISetUpSoftware();
 void Cs5463_SetUp();
 void SPI_Cs5463_Write_wo_SS(uint8_t);
-void SPI_Max5483_Write(uint32_t);
+void SPI_Max5483_Write(uint16_t);
+void mic2130Reset();
+void wdt_run();
 uint32_t SPI_CS5463_Read_Write(uint8_t);
+void Trial_Send_CS5463_to_MAX5483(uint32_t);
 
+
+uint8_t spiSend[3];
 uint8_t control = 0x80;
 uint32_t value_CONFIG;
 uint32_t value_STATUS;
@@ -93,27 +105,42 @@ uint32_t value_TEMPERATURE_int_LSB;
 
 int main(void)
 {
-   cli();
-   SPISetUpSoftware();
-   Cs5463_SetUp();
+	
+	//MCUSR = 0;
+	//WDTCSR |= (1<<WDCE) | (1<<WDE);
+	//WDTCSR = 0;
+	//cli();
+	SPISetUpSoftware();
+	Cs5463_SetUp();
+	//_delay_ms(100);
+	
+	//uint8_t temp = 30;
    
     while (1) 
     {
-					
-		value_CONFIG = SPI_CS5463_Read_Write(CONFIG<<1);
-			
+		//SPI_Max5483_Write(temp++);
+		////max5483Write(50);
+		//if(bit_is_clear(PINA, pgood))
+			//mic2130Reset();
+		
+		
+		
+		value_CONFIG = SPI_CS5463_Read_Write(TEMPERATURE<<1);
+		
+		////
+		Trial_Send_CS5463_to_MAX5483(value_CONFIG);
+		
+		_delay_ms(100);
 		//do
 		//{
 			//value_STATUS = SPI_CS5463_Read_Write(STATUS<<1);
 		//} while (!(value_STATUS & 0x80000000));
 		
-		value_VOLTAGE_RMS = SPI_CS5463_Read_Write(VOLTAGE_RMS<<1);
-		value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1);
-		value_POWER = SPI_CS5463_Read_Write(POWER<<1);
-		value_TEMPERATURE = SPI_CS5463_Read_Write(TEMPERATURE<<1);
+		//value_VOLTAGE_RMS = SPI_CS5463_Read_Write(VOLTAGE_RMS<<1);
+		//value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1);
+		//value_POWER = SPI_CS5463_Read_Write(POWER<<1);
+		//value_TEMPERATURE = SPI_CS5463_Read_Write(TEMPERATURE<<1);
 		
-		
-		SPI_Max5483_Write(0xA0);
 		
 				
 		//float value_TEMPERATURE_F = (float)(value_TEMPERATURE/65536.0);
@@ -129,11 +156,14 @@ void SPISetUpSoftware()
 		//Set all outputs
 		DDRA |= (1<<DDA1) | (1<<DDA2) | (1<<DDA3) | (1<<DDA4) | (1<<DDA6);
 		DDRB |= (1<<DDB0) | (1<<DDB1);
-		PORTA |= (1<<ss_cs5460) | (1<<do_cs5460) |(1<<clk_cs5460) | (1<<ss_max5483) | (1<<clk_max5483) | (1<<do_max5483);
+		
 		//Set all Inputs
 		DDRA &= ~(1<<DDA5);
+		DDRA &= ~(1<<DDA7);
 		PORTA &= ~(1<<di_cs5460);
-		PORTA &= ~(1<<rst_cs5460);
+		PORTA |=  (1<<do_cs5460) | (1<<clk_cs5460) | (1<<ss_max5483) | (1<<rst_cs5460);
+		PORTB |= (1<<clk_max5483) | (1<<do_max5483);
+		//PORTA &= ~(1<<ss_cs5460);
 }
 
 void Cs5463_SetUp()
@@ -149,7 +179,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Sending Sync Commands                                 */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -165,7 +195,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Sending Sync Commands                                  */
@@ -175,7 +205,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Config Register                               */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -191,7 +221,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Config Register                                */
@@ -200,7 +230,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Mask Register                                 */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -216,7 +246,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Mask Register                                  */
@@ -225,7 +255,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Mode Register                                 */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -241,7 +271,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Mode Register                                  */
@@ -250,7 +280,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Control Register                              */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -267,7 +297,7 @@ void Cs5463_SetUp()
 	 
 	 
 	 clk_delay_cs5460;
-	 PORTA |= (1<<ss_cs5460);
+	 //PORTA |= (1<<ss_cs5460);
 	 clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Control Register                               */
@@ -276,7 +306,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Calibration Register                                        */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -289,12 +319,12 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	
 	/****************************************************************************/
 
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -307,12 +337,12 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	
 	/*****************************************************************************/
 	
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -328,7 +358,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Calibration Register                                        */
@@ -338,7 +368,7 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Continuous                                            */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
@@ -351,7 +381,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	
 	
@@ -359,14 +389,14 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Sending Config Message							    */
 	/************************************************************************/
-	PORTA &= ~(1<<ss_cs5460);
+	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(CONFIG); 
-	SPI_Cs5463_Write_wo_SS(0xFF); 
+	SPI_Cs5463_Write_wo_SS(CONFIG);
+	SPI_Cs5463_Write_wo_SS(0xFF);
 	SPI_Cs5463_Write_wo_SS(0xFF);
 	SPI_Cs5463_Write_wo_SS(0xFF);
 	
@@ -375,7 +405,7 @@ void Cs5463_SetUp()
 	
 	
 	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
+	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Sending Config Register                                */
@@ -409,12 +439,14 @@ void SPI_Cs5463_Write_wo_SS(uint8_t data)
 uint32_t SPI_CS5463_Read_Write(uint8_t data)
 {
 	//Enable Slave Select and Disable Clock and Data Out of CS5463
-	Enable_CS5463_SS();
+	//Enable_CS5463_SS();
 	
 	uint32_t read_data = 0x00;
 	
 	for(uint8_t i=0;i<8;i++)
 		{
+			
+			
 			if((data & control) == control)
 				PORTA |= (1<<do_cs5460);
 			else
@@ -431,6 +463,7 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 			read_data |= 0x00;
 			
 			PORTA &= ~(1<<clk_cs5460); //Clock Set Low
+			
 			clk_delay_cs5460;
 		}
 		
@@ -438,63 +471,70 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 		
 		for(uint8_t j=0;j<24;j++)
 		{
-			PORTA |= (1<<do_cs5460);
-			control >>= 1;
 			
+			
+			if(j==23) 
+				PORTA &= ~(1<<do_cs5460);
+			else
+				PORTA |= (1<<do_cs5460);
+						
 			PORTA |= (1<<clk_cs5460); //Clock Set High
 			clk_delay_cs5460;
 			
 			read_data <<=1;
 			if(bit_is_set(PINA, PINA5))
-			read_data |= 0x01;
+				read_data |= 0x01;
 			else
-			read_data |= 0x00;
+				read_data |= 0x00;
 			
 			PORTA &= ~(1<<clk_cs5460); //Clock Set Low
+			
 			clk_delay_cs5460;
 		}
 		
-		control = 0x80;
+		
 		
 		//Disable Slave Select and Enable Clock and Data Out of CS5463
-		Disable_CS5463_SS();
+		//Disable_CS5463_SS();
 		
 		read_data &= (0x00FFFFFF);
 		
 		return read_data;
 }
 
-void SPI_Max5483_Write(uint32_t data)
+void SPI_Max5483_Write(uint16_t data)
 {
-	
-		//Enable Slave Select and Disable Clock and Data Out of CS5463
+		
+		spiSend[0] = 0x00;
+		spiSend[1] = (data >> 2) & 0xFF;
+		spiSend[2] = data << 6;
+		
 		Enable_MAX5483_SS();
-	
-		
-		
-		for (uint8_t i=0;i<32;i++)
-		{
-			if((data & control) == control)
-				PORTB |= (1<<do_max5483);
-			else
-				PORTB &= ~(1<<do_max5483);
-			
-			control >>=1;
-			
-			PORTB |= (1<<clk_max5483); //Clock Set High
-			clk_delay;
-			
-			PORTB &= ~(1<<clk_max5483); //Clock Set Low
-			clk_delay;
-			
-		}
 		
 		control = 0x80;
-	
-		//Disable Slave Select and Enable Clock and Data Out of CS5463
+		
+		for(uint8_t i=0; i<3; i++)
+		{
+			for(uint8_t j=0; j<8; j++)
+			{
+				if((spiSend[i] & control) == control)		
+					PORTB |= (1<<do_max5483);
+				else	
+					PORTB &= ~(1<<do_max5483);				
+				//_delay_us(50);
+								
+				control = control>>1;
+				
+				PORTB |= (1<<clk_max5483);
+				clk_delay_max5483;
+				PORTB &= ~(1<<clk_max5483);
+				clk_delay_max5483;
+			}
+			control = 0x80;
+		}
+		
 		Disable_MAX5483_SS();
-	
-	
+		
 }
 
 void Enable_CS5463_SS()
@@ -520,17 +560,70 @@ void Enable_MAX5483_SS()
 	PORTA &= ~(1<<ss_max5483);
 	clk_delay_max5483;
 	
-	PORTA &= ~(1<<clk_max5483);
-	PORTA &= ~(1<<do_max5483);
+	PORTB &= ~(1<<clk_max5483);
+	PORTB &= ~(1<<do_max5483);
 }
 
 void Disable_MAX5483_SS()
 {
-	PORTA &= ~(1<<clk_max5483);
-	PORTA &= ~(1<<do_max5483);
+	PORTB &= ~(1<<clk_max5483);
+	PORTB &= ~(1<<do_max5483);
 	
 	clk_delay_max5483;
 	PORTA |= (1<<ss_max5483);
 }
 
+void mic2130Reset()
+{
+	PORTA &= ~(1<<micEn);
+	_delay_ms(100);
+	PORTA |= (1<<micEn);
+	_delay_ms(100);
+}
 
+void wdt_run()
+{
+	WDTCSR |= ((1<<WDCE) | (1<<WDE));   // Enable the WD Change Bit
+	WDTCSR =   (1<<WDIE) | (1<<WDP2) | (1<<WDP0);// Enable WDT Interrupt. 64K cycles
+	sei();
+}
+
+
+void Trial_Send_CS5463_to_MAX5483(uint32_t data)
+{
+	spiSend[0] = (data >> 16) & 0xFF;
+	spiSend[1] = (data >> 8) & 0xFF;
+	spiSend[2] = data & 0xFF;
+	
+	Enable_MAX5483_SS();
+	
+	control = 0x80;
+	
+	
+	for(uint8_t i=0; i<3; i++)
+	{
+		
+		for(uint8_t j=0; j<8; j++)
+		{
+			;
+			
+			if((spiSend[i] & control) == control)
+			PORTB |= (1<<do_max5483);
+			else
+			PORTB &= ~(1<<do_max5483);
+			//_delay_us(50);
+			
+			control = control>>1;
+			
+			PORTB |= (1<<clk_max5483);
+			clk_delay_max5483;
+			PORTB &= ~(1<<clk_max5483);
+			
+			clk_delay_max5483;
+		}
+		control = 0x80;
+	}
+	
+	Disable_MAX5483_SS();
+	
+}
