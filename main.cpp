@@ -1,7 +1,7 @@
 /*
- * Attiny44a_CS5463_MAX5483_Actu.cpp
+ * Attiny44A_CS5463_MAX5483_16112018.cpp
  *
- * Created: 11/13/2018 12:03:23 PM
+ * Created: 11/16/2018 2:40:25 PM
  * Author : Aykan
  */ 
 
@@ -16,7 +16,7 @@
 /*			CS5460 Software SPI Definition                               */
 /************************************************************************/
 //CS5460 SS or CS
-#define ss_cs5460		PORTA3
+//#define ss_cs5460		PORTA3
 //CLK
 #define clk_cs5460		PORTA4
 //CS5460 Data Out (DO)
@@ -53,6 +53,14 @@
 #define pgood	PINA7
 
 
+/************************************************************************/
+/*                   CS5463 Maximum Current Value                       */
+/************************************************************************/ 
+#define LMV					28			//Least Meaningful Value for MAX5483
+#define MMV					1023		//Most Meaningful Value for MAX5483
+#define CURRENT_INTERVAL	16861		//interval for cs5463 values
+#define CURRENT_MAX_VALUE	16776696	// ((16861 * 995) + 1) . 1023 is the max meaningful value for MAX5483 and also 28 is the least meaningful value for MAX5483
+#define TWO_UP_TWENTY_FOUR	16777216	// 2^24
 
 enum CS5460_register_t{
 	//Register Page 0 (CS5460)
@@ -78,8 +86,7 @@ enum CS5460_register_t{
 };
 
 
-void Enable_CS5463_SS();
-void Disable_CS5463_SS();
+
 void Enable_MAX5483_SS();
 void Disable_MAX5483_SS();
 void SPISetUpSoftware();
@@ -89,7 +96,9 @@ void SPI_Max5483_Write(uint16_t);
 void mic2130Reset();
 void wdt_run();
 uint32_t SPI_CS5463_Read_Write(uint8_t);
-void Trial_Send_CS5463_to_MAX5483(uint32_t);
+uint16_t Map_CS5463_MAX5483_Values(uint32_t);
+
+
 
 
 uint8_t spiSend[3];
@@ -106,10 +115,10 @@ uint32_t value_TEMPERATURE_int_LSB;
 int main(void)
 {
 	
-	//MCUSR = 0;
-	//WDTCSR |= (1<<WDCE) | (1<<WDE);
-	//WDTCSR = 0;
-	//cli();
+	MCUSR = 0;
+	WDTCSR |= (1<<WDCE) | (1<<WDE);
+	WDTCSR = 0;
+	cli();
 	SPISetUpSoftware();
 	Cs5463_SetUp();
 	//_delay_ms(100);
@@ -118,36 +127,39 @@ int main(void)
    
     while (1) 
     {
-		//SPI_Max5483_Write(temp++);
-		////max5483Write(50);
-		//if(bit_is_clear(PINA, pgood))
-			//mic2130Reset();
+		//value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1);
+		value_CURRENT_RMS = 0x0083BC;
+		SPI_Max5483_Write(Map_CS5463_MAX5483_Values(value_CURRENT_RMS));
 		
 		
-		
-		value_CONFIG = SPI_CS5463_Read_Write(TEMPERATURE<<1);
-		
-		////
-		Trial_Send_CS5463_to_MAX5483(value_CONFIG);
-		
+		if(bit_is_clear(PINA, pgood)) mic2130Reset();
 		_delay_ms(100);
+		
 		//do
 		//{
 			//value_STATUS = SPI_CS5463_Read_Write(STATUS<<1);
+			//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_STATUS);
 		//} while (!(value_STATUS & 0x80000000));
-		
+		//_delay_ms(100);
 		//value_VOLTAGE_RMS = SPI_CS5463_Read_Write(VOLTAGE_RMS<<1);
+		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_VOLTAGE_RMS);
+		//_delay_ms(100);
 		//value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1);
+		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_CURRENT_RMS);
+		//_delay_ms(100);
 		//value_POWER = SPI_CS5463_Read_Write(POWER<<1);
-		//value_TEMPERATURE = SPI_CS5463_Read_Write(TEMPERATURE<<1);
+		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_POWER);
+		//_delay_ms(100);
+		//value_TEMPERATURE = SPI_CS5463_Read_Write(5<<1);
+		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_TEMPERATURE);
+		//_delay_ms(100);
 		
 		
 				
 		//float value_TEMPERATURE_F = (float)(value_TEMPERATURE/65536.0);
 		//float value_VOLTAGE_RMS_F = (float)(value_VOLTAGE_RMS/16777215.0);
 		//float value_CURRENT_RMS_F = (float)(value_CURRENT_RMS/16777215.0);
-		
-		
+				
     }
 }
 
@@ -438,15 +450,11 @@ void SPI_Cs5463_Write_wo_SS(uint8_t data)
 
 uint32_t SPI_CS5463_Read_Write(uint8_t data)
 {
-	//Enable Slave Select and Disable Clock and Data Out of CS5463
-	//Enable_CS5463_SS();
-	
+		
 	uint32_t read_data = 0x00;
 	
 	for(uint8_t i=0;i<8;i++)
 		{
-			
-			
 			if((data & control) == control)
 				PORTA |= (1<<do_cs5460);
 			else
@@ -471,8 +479,6 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 		
 		for(uint8_t j=0;j<24;j++)
 		{
-			
-			
 			if(j==23) 
 				PORTA &= ~(1<<do_cs5460);
 			else
@@ -491,20 +497,31 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 			
 			clk_delay_cs5460;
 		}
-		
-		
-		
-		//Disable Slave Select and Enable Clock and Data Out of CS5463
-		//Disable_CS5463_SS();
-		
+			
 		read_data &= (0x00FFFFFF);
 		
 		return read_data;
 }
 
+uint16_t Map_CS5463_MAX5483_Values(uint32_t data)
+{
+	uint16_t j = 0; //MAX5483 matching value
+	uint16_t Read_max5483 = 0;
+	
+	for (uint32_t i=0;i<CURRENT_MAX_VALUE;i+=CURRENT_INTERVAL)
+	{
+		if((i <= data) && (data < (i+CURRENT_INTERVAL)))
+		Read_max5483 = LMV + j;
+		
+		j++;
+	}
+	
+	return Read_max5483;
+	
+}
+
 void SPI_Max5483_Write(uint16_t data)
 {
-		
 		spiSend[0] = 0x00;
 		spiSend[1] = (data >> 2) & 0xFF;
 		spiSend[2] = data << 6;
@@ -534,25 +551,6 @@ void SPI_Max5483_Write(uint16_t data)
 		}
 		
 		Disable_MAX5483_SS();
-		
-}
-
-void Enable_CS5463_SS()
-{
-	PORTA &= ~(1<<ss_cs5460);
-	clk_delay_cs5460;
-	
-	PORTA &= ~(1<<clk_cs5460);
-	PORTA &= ~(1<<do_cs5460);
-}
-
-void Disable_CS5463_SS()
-{
-	PORTA &= ~(1<<clk_cs5460);
-	PORTA &= ~(1<<do_cs5460);
-	
-	clk_delay_cs5460;
-	PORTA |= (1<<ss_cs5460);
 }
 
 void Enable_MAX5483_SS()
@@ -589,41 +587,4 @@ void wdt_run()
 }
 
 
-void Trial_Send_CS5463_to_MAX5483(uint32_t data)
-{
-	spiSend[0] = (data >> 16) & 0xFF;
-	spiSend[1] = (data >> 8) & 0xFF;
-	spiSend[2] = data & 0xFF;
-	
-	Enable_MAX5483_SS();
-	
-	control = 0x80;
-	
-	
-	for(uint8_t i=0; i<3; i++)
-	{
-		
-		for(uint8_t j=0; j<8; j++)
-		{
-			;
-			
-			if((spiSend[i] & control) == control)
-			PORTB |= (1<<do_max5483);
-			else
-			PORTB &= ~(1<<do_max5483);
-			//_delay_us(50);
-			
-			control = control>>1;
-			
-			PORTB |= (1<<clk_max5483);
-			clk_delay_max5483;
-			PORTB &= ~(1<<clk_max5483);
-			
-			clk_delay_max5483;
-		}
-		control = 0x80;
-	}
-	
-	Disable_MAX5483_SS();
-	
-}
+
