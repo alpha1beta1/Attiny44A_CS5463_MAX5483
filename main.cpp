@@ -1,10 +1,9 @@
 /*
- * Attiny44A_CS5463_MAX5483_16112018.cpp
+ * Attiny44A_CS5463_MAX5483_20112018.cpp
  *
- * Created: 11/16/2018 2:40:25 PM
+ * Created: 11/20/2018 11:39:07 AM
  * Author : Aykan
  */ 
-
 
 
 #define F_CPU 8000000UL
@@ -56,12 +55,13 @@
 
 /************************************************************************/
 /*                   CS5463 Maximum Current Value                       */
-/************************************************************************/ 
-#define LMV					28			//Least Meaningful Value for MAX5483
-#define MMV					1023		//Most Meaningful Value for MAX5483
-#define CURRENT_INTERVAL	16861		//interval for cs5463 values
-#define CURRENT_MAX_VALUE	16776696	// ((16861 * 995) + 1) . 1023 is the max meaningful value for MAX5483 and also 28 is the least meaningful value for MAX5483
-#define TWO_UP_TWENTY_FOUR	16777216	// 2^24
+/************************************************************************/
+#define LMV							78			//Least Meaningful Value for MAX5483 at 7.04 VDC
+#define MMV							100			//Most Meaningful Value for MAX5483
+#define TWO_UP_TWENTY_FOUR			16777216	// 2^24
+#define DIFFERENCE					round(TWO_UP_TWENTY_FOUR / (LMV))	//Determining Interval for CS5463
+
+
 
 enum CS5460_register_t{
 	//Register Page 0 (CS5460)
@@ -92,7 +92,8 @@ void Enable_MAX5483_SS();
 void Disable_MAX5483_SS();
 void SPISetUpSoftware();
 void Cs5463_SetUp();
-void SPI_Cs5463_Write_wo_SS(uint8_t);
+void Cs5463_STATUS_Reset();
+void SPI_Cs5463_Write(uint8_t);
 void SPI_Max5483_Write(uint16_t);
 void mic2130Reset();
 void wdt_run();
@@ -100,18 +101,15 @@ uint32_t SPI_CS5463_Read_Write(uint8_t);
 uint16_t Map_CS5463_MAX5483_Values(uint32_t);
 
 
+uint8_t spiSend[3]; //Used for allocation of Max5483 meaningful bits
+uint8_t control = 0x80; //Used for writing each bit
+uint32_t value_CONFIG;	//Configuration Register value of CS5463 (Register Address Bits: "00000")
+uint32_t value_STATUS;	//Status Register value of CS5463 (Register Address Bits: "01111")
+uint32_t value_CURRENT_RMS; //Current Register value of CS5463 (Register Address Bits: "01011")
 
 
-uint8_t spiSend[3];
-uint8_t control = 0x80;
-uint32_t value_CONFIG;
-uint32_t value_STATUS;
-uint32_t value_VOLTAGE_RMS;
-uint32_t value_CURRENT_RMS;
-uint32_t value_POWER;
-uint32_t value_TEMPERATURE;
-uint32_t value_TEMPERATURE_int_MSB;
-uint32_t value_TEMPERATURE_int_LSB;
+
+ 
 
 int main(void)
 {
@@ -120,48 +118,44 @@ int main(void)
 	WDTCSR |= (1<<WDCE) | (1<<WDE);
 	WDTCSR = 0;
 	cli();
-	SPISetUpSoftware();
-	Cs5463_SetUp();
-	//_delay_ms(100);
 	
-	//uint8_t temp = 30;
+	SPISetUpSoftware();	//Set all required Data Direction Registers of Attiny44A
+	Cs5463_SetUp();		//Set initial value of all selected Registers of CS5463
+	
+   
+   if(bit_is_clear(PINA, pgood)) mic2130Reset(); //Reset Mic2130
+   
    
     while (1) 
     {
-		//value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1);
-		value_CURRENT_RMS = 0x0083BC;
-		SPI_Max5483_Write(Map_CS5463_MAX5483_Values(value_CURRENT_RMS));
+		
+		do
+		{
+			value_STATUS = SPI_CS5463_Read_Write(STATUS<<1); //Read STATUS Register of CS5463 and send this value to Attiny44A
+			_delay_ms(100);
+						
+		} while (!(value_STATUS & 0x800000));
 		
 		
-		if(bit_is_clear(PINA, pgood)) mic2130Reset();
+		Cs5463_STATUS_Reset(); //Reset CS5463 STATUS Register
 		_delay_ms(100);
 		
-		//do
-		//{
-			//value_STATUS = SPI_CS5463_Read_Write(STATUS<<1);
-			//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_STATUS);
-		//} while (!(value_STATUS & 0x80000000));
-		//_delay_ms(100);
-		//value_VOLTAGE_RMS = SPI_CS5463_Read_Write(VOLTAGE_RMS<<1);
-		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_VOLTAGE_RMS);
-		//_delay_ms(100);
-		//value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1);
-		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_CURRENT_RMS);
-		//_delay_ms(100);
-		//value_POWER = SPI_CS5463_Read_Write(POWER<<1);
-		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_POWER);
-		//_delay_ms(100);
-		//value_TEMPERATURE = SPI_CS5463_Read_Write(5<<1);
-		//Send_CS5643_data_to_Max5483_Beginning_w_BA(value_TEMPERATURE);
-		//_delay_ms(100);
+		value_CURRENT_RMS = SPI_CS5463_Read_Write(CURRENT_RMS<<1); //Read CUURENT_RMS Register of CS5463 and send this value to Attiny44A
+		_delay_ms(100);
 		
 		
-				
-		//float value_TEMPERATURE_F = (float)(value_TEMPERATURE/65536.0);
-		//float value_VOLTAGE_RMS_F = (float)(value_VOLTAGE_RMS/16777215.0);
-		//float value_CURRENT_RMS_F = (float)(value_CURRENT_RMS/16777215.0);
-				
-    }
+		
+		SPI_Max5483_Write(Map_CS5463_MAX5483_Values(value_CURRENT_RMS)); //Map the CS5463 CUURENT Register value with MAX5483 and Send result to MAX5483
+		 
+		 if(bit_is_clear(PINA, pgood)) 
+		 {	
+			mic2130Reset();	 //Reset Mic2130
+		 }
+		
+		
+	}
+	
+    
 }
 
 void SPISetUpSoftware()
@@ -179,6 +173,32 @@ void SPISetUpSoftware()
 		//PORTA &= ~(1<<ss_cs5460);
 }
 
+void Cs5463_STATUS_Reset()
+{
+	/************************************************************************/
+	/*			Start Setting Status Register                               */
+	/************************************************************************/
+	clk_delay_cs5460;
+	
+	PORTA &= ~(1<<clk_cs5460);
+	PORTA &= ~(1<<do_cs5460);
+	
+	SPI_Cs5463_Write(Write | STATUS<<1); //
+	SPI_Cs5463_Write(0x00); //
+	SPI_Cs5463_Write(0x00);
+	SPI_Cs5463_Write(0x00);
+	
+	PORTA &= ~(1<<clk_cs5460);
+	PORTA &= ~(1<<do_cs5460);
+	
+	
+	clk_delay_cs5460;
+	clk_delay;
+	/************************************************************************/
+	/*			Stop Setting Status Register                                */
+	/************************************************************************/
+}
+
 void Cs5463_SetUp()
 {
 	
@@ -192,23 +212,21 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Sending Sync Commands                                 */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(SYNC1);
-	SPI_Cs5463_Write_wo_SS(SYNC1);
-	SPI_Cs5463_Write_wo_SS(SYNC1);
-	SPI_Cs5463_Write_wo_SS(SYNC0);
+	SPI_Cs5463_Write(SYNC1);
+	SPI_Cs5463_Write(SYNC1);
+	SPI_Cs5463_Write(SYNC1);
+	SPI_Cs5463_Write(SYNC0);
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Sending Sync Commands                                  */
@@ -218,23 +236,21 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Config Register                               */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(Write | CONFIG<<1); //0x40 -> 100
-	SPI_Cs5463_Write_wo_SS(0x00); //3 chars of data to set 24bits of config register 
-	SPI_Cs5463_Write_wo_SS(0x00); 
-	SPI_Cs5463_Write_wo_SS(0x01); 
+	SPI_Cs5463_Write(Write | CONFIG<<1); //0x40 -> 100
+	SPI_Cs5463_Write(0x00); //3 chars of data to set 24bits of config register 
+	SPI_Cs5463_Write(0x00); 
+	SPI_Cs5463_Write(0x01); 
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Config Register                                */
@@ -243,23 +259,21 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Mask Register                                 */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(Write | MASK_INTERRUPT<<1); //0x74 -> 116
-	SPI_Cs5463_Write_wo_SS(0x00); //3 chars of data to set 24bits of mask register (Set for no interrupts)
-	SPI_Cs5463_Write_wo_SS(0x00); 
-	SPI_Cs5463_Write_wo_SS(0x00); 
+	SPI_Cs5463_Write(Write | MASK_INTERRUPT<<1); //0x74 -> 116
+	SPI_Cs5463_Write(0x00); //3 chars of data to set 24bits of mask register (Set for no interrupts)
+	SPI_Cs5463_Write(0x00); 
+	SPI_Cs5463_Write(0x00); 
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Mask Register                                  */
@@ -268,23 +282,21 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Mode Register                                 */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(Write | MODE<<1); //0x64 -> 100
-	SPI_Cs5463_Write_wo_SS(0x00); //Sets High pass filters on Voltage and Current lines, sets automatic line frequency measurements
-	SPI_Cs5463_Write_wo_SS(0x00); 
-	SPI_Cs5463_Write_wo_SS(0x01); 
+	SPI_Cs5463_Write(Write | MODE<<1); //0x64 -> 100
+	SPI_Cs5463_Write(0x00); //Sets High pass filters on Voltage and Current lines, sets automatic line frequency measurements
+	SPI_Cs5463_Write(0x00); 
+	SPI_Cs5463_Write(0x01); 
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Mode Register                                  */
@@ -293,24 +305,22 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Setting Control Register                              */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
-	SPI_Cs5463_Write_wo_SS(Write | CONTROL<<1); //0x78 -> 120
-	SPI_Cs5463_Write_wo_SS(0x00); //Disables CPUCLK 
-	SPI_Cs5463_Write_wo_SS(0x00); 
-	SPI_Cs5463_Write_wo_SS(0x04);
+	SPI_Cs5463_Write(Write | CONTROL<<1); //0x78 -> 120
+	SPI_Cs5463_Write(0x00); //Disables CPUCLK 
+	SPI_Cs5463_Write(0x00); 
+	SPI_Cs5463_Write(0x04);
 	
 	 PORTA &= ~(1<<clk_cs5460);
 	 PORTA &= ~(1<<do_cs5460);
 	 
 	 
 	 clk_delay_cs5460;
-	 //PORTA |= (1<<ss_cs5460);
 	 clk_delay;
 	/************************************************************************/
 	/*			Stop Setting Control Register                               */
@@ -319,59 +329,53 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Calibration Register                                        */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(CALIBRATION_Cur_Volt_AC_GAIN);
+	SPI_Cs5463_Write(CALIBRATION_Cur_Volt_AC_GAIN);
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	
 	/****************************************************************************/
-
-	//PORTA &= ~(1<<ss_cs5460);
+	
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(CALIBRATION_Cur_Volt_AC_OFFSET);
+	SPI_Cs5463_Write(CALIBRATION_Cur_Volt_AC_OFFSET);
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	
 	/*****************************************************************************/
 	
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(Write | VOLTAGE_AC_OFFSET<<1);
-	SPI_Cs5463_Write_wo_SS(0x00);
-	SPI_Cs5463_Write_wo_SS(0x00);
-	SPI_Cs5463_Write_wo_SS(0x00);
+	SPI_Cs5463_Write(Write | VOLTAGE_AC_OFFSET<<1);
+	SPI_Cs5463_Write(0x00);
+	SPI_Cs5463_Write(0x00);
+	SPI_Cs5463_Write(0x00);
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
 	/************************************************************************/
 	/*			Calibration Register                                        */
@@ -381,52 +385,23 @@ void Cs5463_SetUp()
 	/************************************************************************/
 	/*			Start Continuous                                            */
 	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
 	clk_delay_cs5460;
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
-	SPI_Cs5463_Write_wo_SS(START_CONTINUOUS); //0xE8 -> 232
+	SPI_Cs5463_Write(START_CONTINUOUS); //0xE8 -> 232
 	
 	PORTA &= ~(1<<clk_cs5460);
 	PORTA &= ~(1<<do_cs5460);
 	
 	
 	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
 	clk_delay;
-	
-	
-	
-	/************************************************************************/
-	/*			Start Sending Config Message							    */
-	/************************************************************************/
-	//PORTA &= ~(1<<ss_cs5460);
-	clk_delay_cs5460;
-	
-	PORTA &= ~(1<<clk_cs5460);
-	PORTA &= ~(1<<do_cs5460);
-	
-	SPI_Cs5463_Write_wo_SS(CONFIG);
-	SPI_Cs5463_Write_wo_SS(0xFF);
-	SPI_Cs5463_Write_wo_SS(0xFF);
-	SPI_Cs5463_Write_wo_SS(0xFF);
-	
-	PORTA &= ~(1<<clk_cs5460);
-	PORTA &= ~(1<<do_cs5460);
-	
-	
-	clk_delay_cs5460;
-	//PORTA |= (1<<ss_cs5460);
-	clk_delay;
-	/************************************************************************/
-	/*			Stop Sending Config Register                                */
-	/************************************************************************/
-	
+
 }
 
-void SPI_Cs5463_Write_wo_SS(uint8_t data)
+void SPI_Cs5463_Write(uint8_t data)
 {
 	for(uint8_t i=0;i<8;i++)
 	{
@@ -454,7 +429,7 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 		
 	uint32_t read_data = 0x00;
 	
-	for(uint8_t i=0;i<8;i++)
+	for(uint8_t i=0;i<8;i++)  //Send Command Byte (8 bit) to CS5463
 		{
 			if((data & control) == control)
 				PORTA |= (1<<do_cs5460);
@@ -466,10 +441,10 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 			clk_delay_cs5460;
 			
 			read_data <<=1;
-			if(bit_is_set(PINA, PINA5))
-			read_data |= 0x01;
+			if(bit_is_set(PINA, PINA5)) //Read each bit coming from CS5463
+				read_data |= 0x01;
 			else
-			read_data |= 0x00;
+				read_data |= 0x00;
 			
 			PORTA &= ~(1<<clk_cs5460); //Clock Set Low
 			
@@ -480,16 +455,14 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 		
 		for(uint8_t j=0;j<24;j++)
 		{
-			if(j==23) 
-				PORTA &= ~(1<<do_cs5460);
-			else
-				PORTA |= (1<<do_cs5460);
+			
+			PORTA |= (1<<do_cs5460); //Send binary "1" to CS5463 during 24 bit cycle (3 times SYNC1)
 						
 			PORTA |= (1<<clk_cs5460); //Clock Set High
 			clk_delay_cs5460;
 			
 			read_data <<=1;
-			if(bit_is_set(PINA, PINA5))
+			if(bit_is_set(PINA, PINA5)) //Read each bit coming from CS5463
 				read_data |= 0x01;
 			else
 				read_data |= 0x00;
@@ -499,26 +472,9 @@ uint32_t SPI_CS5463_Read_Write(uint8_t data)
 			clk_delay_cs5460;
 		}
 			
-		read_data &= (0x00FFFFFF);
+		read_data &= (0x00FFFFFF); //Take only meaningful 24 bit of 32 bit coming from CS5463
 		
 		return read_data;
-}
-
-uint16_t Map_CS5463_MAX5483_Values(uint32_t data)
-{
-	uint16_t j = 0; //MAX5483 matching value
-	uint16_t Read_max5483 = 0;
-	
-	for (uint32_t i=0;i<CURRENT_MAX_VALUE;i+=CURRENT_INTERVAL)
-	{
-		if((i <= data) && (data < (i+CURRENT_INTERVAL)))
-		Read_max5483 = LMV + j;
-		
-		j++;
-	}
-	
-	return Read_max5483;
-	
 }
 
 void SPI_Max5483_Write(uint16_t data)
@@ -587,5 +543,15 @@ void wdt_run()
 	sei();
 }
 
+uint16_t Map_CS5463_MAX5483_Values(uint32_t data)
+{
+	
+	uint16_t Read_max5483 = 0;
+	
+	Read_max5483 = LMV - (uint16_t)(round(data / DIFFERENCE));
+	
+	return Read_max5483;
+	
+}
 
 
